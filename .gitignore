@@ -1,0 +1,30 @@
+# Build output
+build/
+
+# ESP-IDF generated config
+sdkconfig
+sdkconfig.old
+
+# ESP-IDF component manager
+managed_components/
+
+# CMake generated
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# Binary outputs
+*.bin
+*.elf
+*.map
+
+# IDE
+.vscode/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Language servers
+compile_commands.json
+.clangd/

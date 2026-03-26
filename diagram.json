@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "author": "Ethan",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-devkit-v1",
+      "id": "esp",
+      "top": 80,
+      "left": 0,
+      "attrs": {
+        "cpuFrequency": "240"
+      }
+    },
+    {
+      "type": "wokwi-logic-analyzer",
+      "id": "logic",
+      "top": -140,
+      "left": 380,
+      "attrs": {
+        "channels": "8",
+        "channelNames": "SYNC,IN_S,IN_A,IN_B,ACK_A,ACK_B,ACK_AGG,ACK_S"
+      }
+    },
+    {
+      "type": "wokwi-clock-generator",
+      "id": "clkA",
+      "top": -120,
+      "left": -300,
+      "attrs": {
+        "frequency": "1k"
+      }
+    },
+    {
+      "type": "wokwi-clock-generator",
+      "id": "clkB",
+      "top": -40,
+      "left": -300,
+      "attrs": {
+        "frequency": "700"
+      }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btnSync",
+      "top": 70,
+      "left": -300,
+      "attrs": {
+        "color": "green",
+        "label": "SYNC",
+        "key": "Y"
+      }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btnS",
+      "top": 170,
+      "left": -300,
+      "attrs": {
+        "color": "blue",
+        "label": "IN_S",
+        "key": "S"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "rSyncPd",
+      "top": 110,
+      "left": -160,
+      "attrs": {
+        "value": "10k"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "rSPd",
+      "top": 210,
+      "left": -160,
+      "attrs": {
+        "value": "10k"
+      }
+    }
+  ],
+  "connections": [
+    ["esp:19", "logic:D0", "yellow", ["h0"]],
+    ["esp:16", "logic:D1", "blue", ["h0"]],
+    ["esp:18", "logic:D2", "orange", ["h0"]],
+    ["esp:17", "logic:D3", "orange", ["h0"]],
+    ["esp:27", "logic:D4", "green", ["h0"]],
+    ["esp:26", "logic:D5", "green", ["h0"]],
+    ["esp:25", "logic:D6", "green", ["h0"]],
+    ["esp:14", "logic:D7", "green", ["h0"]],
+
+    ["clkA:CLK", "esp:18", "orange", ["h0"]],
+    ["clkB:CLK", "esp:17", "orange", ["h0"]],
+
+    ["btnSync:1.l", "esp:19", "yellow", ["h0"]],
+    ["btnSync:2.l", "esp:3V3", "red", ["v0"]],
+    ["rSyncPd:1", "esp:19", "yellow", ["h0"]],
+    ["rSyncPd:2", "esp:GND.1", "black", ["v0"]],
+
+    ["btnS:1.l", "esp:16", "blue", ["h0"]],
+    ["btnS:2.l", "esp:3V3", "red", ["v0"]],
+    ["rSPd:1", "esp:16", "blue", ["h0"]],
+    ["rSPd:2", "esp:GND.1", "black", ["v0"]]
+  ]
+}
