@@ -6,6 +6,11 @@
 #include "esp_timer.h"
 #include "esp_attr.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
+#define BUTTON_DEBOUNCE_US 20000 
+
 // Forward declaration for ISR handler
 static void IRAM_ATTR in_s_isr(void *arg);
 
@@ -51,6 +56,9 @@ void pins_init(void)
 
     gpio_set_direction(PIN_ERROR_LED, GPIO_MODE_OUTPUT);
     gpio_set_level(PIN_ERROR_LED, 0);
+
+    gpio_set_direction(PIN_IN_MODE, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(PIN_IN_MODE, GPIO_PULLDOWN_ONLY);
 
     gpio_set_level(PIN_ACK_A, 0);
     gpio_set_level(PIN_ACK_B, 0);
@@ -113,9 +121,10 @@ static void IRAM_ATTR in_s_isr(void *arg)
 
     // simple debounce / min-interarrival guard (30ms)
     if ((t - last_sporadic_us) >= 30000) {
-        sporadic_pending_count++;
         last_sporadic_us = t;
-        notifySRelease();
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        xSemaphoreGiveFromISR(semaS, &xHigherPriorityTaskWoken);
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
     }
 }
 // checks if sync has been seen
@@ -167,5 +176,37 @@ int64_t pins_edgesB_delta(){
     return delta_B;
 }
 
+int inModeButton(void)
+{
+    static int lastRaw = 0;
+    static int lastStable = 0;
+    static int mode = 0;
+    static int64_t lastChangeTime = 0;
 
+    int raw = gpio_get_level(PIN_IN_MODE);
+    int64_t now = esp_timer_get_time();
 
+    // detect change
+    if (raw != lastRaw)
+    {
+        lastRaw = raw;
+        lastChangeTime = now;
+    }
+
+    // debounce check
+    if ((now - lastChangeTime) > 20000) // 20ms
+    {
+        if (lastStable != raw)
+        {
+            lastStable = raw;
+
+            // rising edge → toggle
+            if (lastStable == 1)
+            {
+                mode = !mode;
+            }
+        }
+    }
+
+    return mode;
+}

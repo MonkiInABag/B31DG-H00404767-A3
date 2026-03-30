@@ -2,7 +2,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "driver/gpio.h"
-
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 // Pin definitions
 #define PIN_SYNC     19
 #define PIN_IN_A     18
@@ -16,7 +17,9 @@
 #define PIN_ACK_D    32
 #define PIN_ACK_S    14
 
-#define PIN_ERROR_LED 13
+#define PIN_IN_MODE  13
+
+#define PIN_ERROR_LED 12
 
 // Function declarations
 void pins_init(void);
@@ -27,3 +30,5 @@ int64_t pins_edgesA_delta(void);
 int64_t pins_edgesB_delta(void);
 bool pins_take_sporadic_pending(void);
 bool pins_has_sporadic_pending(void);
+int inModeButton(void);
+extern SemaphoreHandle_t semaS;

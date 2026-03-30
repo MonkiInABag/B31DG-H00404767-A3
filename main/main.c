@@ -13,16 +13,12 @@
 #include "tasks.h"
 #include "monitor.h"
 
-
-// Task scheduling parameters
-#define FRAME_US 10000
-#define HYPERFRAME_FRAMES 10
-#define TASKS_GAURD_TIME_US 3200
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
 
 // Task execution state
 static int64_t T0_us = 0;
-static int64_t nextFrame_us = 0;
-static int current_frame = 0;
 
 // Forward declarations for task runners
 uint32_t s_id = 0;
@@ -32,12 +28,17 @@ uint32_t agg_id = 0;
 uint32_t c_id = 0;
 uint32_t d_id = 0;
 
+SemaphoreHandle_t semaA;
+SemaphoreHandle_t semaB;
+SemaphoreHandle_t semaS;
+
 // Task runner functions that wrap task execution with monitor calls
 static void Run_TaskA(void)
 {
     beginTaskA(a_id++);
     task_A();
     endTaskA();
+    xSemaphoreGive(semaA);
 }
 
 static void Run_TaskB(void)
@@ -45,6 +46,7 @@ static void Run_TaskB(void)
     beginTaskB(b_id++);
     task_B();
     endTaskB();
+    xSemaphoreGive(semaB);
 }
 
 static void Run_TaskAGG(void)
@@ -56,26 +58,104 @@ static void Run_TaskAGG(void)
 
 static void Run_TaskC(void)
 {
-    beginTaskC(c_id++);
+    uint32_t release_id = (uint32_t)((esp_timer_get_time() - T0_us) / 50000ULL);
+    beginTaskC(release_id);
     task_C();
     endTaskC();
 }
 
 static void Run_TaskD(void)
 {
-    beginTaskD(d_id++);
+    uint32_t release_id = (uint32_t)((esp_timer_get_time() - T0_us) / 50000ULL);
+    beginTaskD(release_id);
     task_D();
     endTaskD();
 }
 
 static void Run_TaskS(void)
 {
-    if (pins_take_sporadic_pending()) {
         beginTaskS(s_id++);
         task_S();
         endTaskS();
+}
+
+static void TaskA_FRTOS(void *pvParameters)
+{
+    TickType_t lastWakeTime = xTaskGetTickCount();
+    while(1)
+    {
+        Run_TaskA();
+        vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(10));
     }
 }
+
+static void TaskB_FRTOS(void *pvParameters)
+{
+    TickType_t lastWakeTime = xTaskGetTickCount();
+    while(1)
+    {
+        Run_TaskB();
+        vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(20));
+    }
+}
+
+static void TaskAGG_FRTOS(void *pvParameters)
+{
+    TickType_t lastWakeTime = xTaskGetTickCount();
+    while(1)
+    {
+        xSemaphoreTake(semaA, portMAX_DELAY);
+        xSemaphoreTake(semaB, portMAX_DELAY);
+        Run_TaskAGG();
+        vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(20));
+    }
+}
+
+static void TaskC_FRTOS(void *pvParameters)
+{
+        TickType_t lastWakeTime = xTaskGetTickCount();
+        while(1)
+        {
+            if (inModeButton() == 1)
+            {
+                Run_TaskC();
+            }
+            vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(50));
+        }
+}
+
+static void TaskD_FRTOS(void *pvParameters)
+{
+        TickType_t lastWakeTime = xTaskGetTickCount();
+        while(1)
+        {
+            if (inModeButton() == 1)
+            {
+                Run_TaskD();
+            }
+            vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(50));
+           
+        }
+}
+
+static void TaskS_FRTOS(void *pvParameters)
+{
+        while(1)
+        {
+            xSemaphoreTake(semaS, portMAX_DELAY);
+            Run_TaskS();
+        }
+}
+
+static void TaskMonitor(void *pvParameters)
+{
+    while (1)
+    {
+        monitorPollReports();
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+}
+
 
 void app_main(void)
 {
@@ -85,11 +165,16 @@ void app_main(void)
     monitorInit();
 
     // Configure periodic and final reports
-    monitorSetPeriodicReportEverySeconds(0);
+    monitorSetPeriodicReportEverySeconds(10);
     monitorSetFinalReportAfterSeconds(60);
 
     // Disable task watchdog
     esp_task_wdt_delete(NULL);
+
+    semaA = xSemaphoreCreateBinary();
+    semaB = xSemaphoreCreateBinary();
+    semaS = xSemaphoreCreateBinary();
+
 
     // Wait for SYNC signal to align the start of the schedule
     while (!pins_sync_seen()) {
@@ -100,123 +185,68 @@ void app_main(void)
     T0_us = pins_sync_T0_us();
     synch();
 
-    nextFrame_us = T0_us;
-    current_frame = 0;
+    xTaskCreatePinnedToCore(
+        TaskA_FRTOS,
+        "TaskA",
+        2048,
+        NULL,
+        3, 
+        NULL,
+        0
+    );
 
-    while (1)
-    {
-        // Wait until the exact start of this frame
-        while (esp_timer_get_time() < nextFrame_us)
-        {
-            monitorPollReports();
-
-            //checks if any dealienes are missed
-            if (!monitorAllDeadlinesMet())
-            {
-                gpio_set_level(PIN_ERROR_LED, 1);
-            }
-
-            ets_delay_us(50);
-        }
-
-        // Update the current frame based on the current time to handle any drift
-        int64_t now_us = esp_timer_get_time();
-        // if behind schedule, catch up to expected frame based on current time
-        while (now_us >= nextFrame_us + FRAME_US)
-        {
-            nextFrame_us += FRAME_US;
-            current_frame = (current_frame + 1) % HYPERFRAME_FRAMES;
-            now_us = esp_timer_get_time();
-        }
-
-        // Calculate the end time of this frame for later slack calculations
-        int64_t frame_end_us = nextFrame_us + FRAME_US;
-
-        // Run the fixed periodic tasks for this frame
-        switch (current_frame) {
-            case 0:
-                Run_TaskA();
-                Run_TaskB();
-                Run_TaskAGG();
-                break;
-
-            case 1:
-                Run_TaskA();
-                Run_TaskC();
-                break;
-
-            case 2:
-                Run_TaskA();
-                Run_TaskB();
-                Run_TaskAGG();
-                break;
-
-            case 3:
-                Run_TaskA();
-                Run_TaskD();
-                break;
-
-            case 4:
-                Run_TaskA();
-                Run_TaskB();
-                Run_TaskAGG();
-                break;
-
-            case 5:
-                Run_TaskA();
-                Run_TaskC();
-                break;
-
-            case 6:
-                Run_TaskA();
-                Run_TaskB();
-                Run_TaskAGG();
-                break;
-
-            case 7:
-                Run_TaskA();
-                Run_TaskD();
-                break;
-
-            case 8:
-                Run_TaskA();
-                Run_TaskB();
-                Run_TaskAGG();
-                break;
-
-            case 9:
-                Run_TaskA();
-                break;
-
-            default:
-                break;
-        }
-
-        // Try to run one sporadic job only if there is enough slack left
-        int64_t post_tasks_us = esp_timer_get_time();
-        int64_t time_left_us = frame_end_us - post_tasks_us;
-
-        // Only allow S in frames that actually have space
-        if (time_left_us >= TASKS_GAURD_TIME_US)
-        {
-            Run_TaskS();
-        }
-
-        // Wait out the rest of the frame so the 10 ms frame is enforced
-        while (esp_timer_get_time() < frame_end_us)
-        {
-            monitorPollReports();
-
-            if (!monitorAllDeadlinesMet())
-            {
-                gpio_set_level(PIN_ERROR_LED, 1);
-            }
-
-            ets_delay_us(50);
-        }
-
-        // Advance to the next exact frame boundary
-        nextFrame_us += FRAME_US;
-        current_frame = (current_frame + 1) % HYPERFRAME_FRAMES;
-    }
+    xTaskCreatePinnedToCore(
+        TaskB_FRTOS,
+        "TaskB",
+        2048,
+        NULL,
+        3, 
+        NULL,
+        0
+    );
+    xTaskCreatePinnedToCore(
+        TaskAGG_FRTOS,
+        "TaskAGG",
+        2048,
+        NULL,
+        3, 
+        NULL,
+        0
+    );
+    xTaskCreatePinnedToCore(
+        TaskC_FRTOS,
+        "TaskC",
+        2048,
+        NULL,
+        2, 
+        NULL,
+        0
+    );
+    xTaskCreatePinnedToCore(
+        TaskD_FRTOS,
+        "TaskD",
+        2048,
+        NULL,
+        2, 
+        NULL,
+        0
+    );
+    xTaskCreatePinnedToCore(
+        TaskS_FRTOS,
+        "TaskS",
+        2048,
+        NULL,
+        4, 
+        NULL,
+        0
+    );
+    xTaskCreatePinnedToCore(
+        TaskMonitor,
+        "Monitor",
+        2048,
+        NULL,
+        1, 
+        NULL,
+        0
+    );
 }
