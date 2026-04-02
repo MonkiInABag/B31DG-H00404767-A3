@@ -48,8 +48,12 @@ void task_A(void)
 
     uint32_t countA = (uint32_t)pins_edgesA_delta();
     uint32_t seed   = (idxA << 16) ^ countA ^ 0xA1;
-    tokenA          = WorkKernel(BUDGET_A, seed);
+    uint32_t tokenA_local = WorkKernel(BUDGET_A, seed);
+    // Update shared token for AGG with mutex protection
+    xSemaphoreTake(token_mutex, portMAX_DELAY);
+    tokenA          = tokenA_local;
     tokenA_valid    = true;
+    xSemaphoreGive(token_mutex);
 
     ack_low(PIN_ACK_A);
     /*
@@ -67,8 +71,12 @@ void task_B(void)
 
     uint32_t countB = (uint32_t)pins_edgesB_delta();
     uint32_t seed   = (idxB << 16) ^ countB ^ 0xB2;
-    tokenB          = WorkKernel(BUDGET_B, seed);
+    // Update shared token for AGG with mutex protection
+    uint32_t tokenB_local = WorkKernel(BUDGET_B, seed);
+    xSemaphoreTake(token_mutex, portMAX_DELAY);
+    tokenB          = tokenB_local;
     tokenB_valid    = true;
+    xSemaphoreGive(token_mutex);
 
     ack_low(PIN_ACK_B);
     /*
@@ -83,15 +91,26 @@ void task_B(void)
 void task_AGG(void)
 {
     ack_high(PIN_ACK_AGG);
-
+    
+    uint32_t localA = 0;
+    uint32_t localB = 0;
+    bool validA = false;
+    bool validB = false;
+    // Read latest tokens from A and B with mutex protection
+    xSemaphoreTake(token_mutex, portMAX_DELAY);
+    localA = tokenA;
+    localB = tokenB;
+    validA = tokenA_valid;
+    validB = tokenB_valid;
+    xSemaphoreGive(token_mutex);
     uint32_t agg;
     if (tokenA_valid && tokenB_valid) {
         agg = tokenA ^ tokenB;
     } else {
-        agg = 0xDEADBEEF;
+        agg = 0xDEADBEEF; // Sentinel value if tokens are not valid
     }
 
-    uint32_t seed     = (idxAGG << 16) ^ agg ^ 0xD4;
+    uint32_t seed   = (idxAGG << 16) ^ agg ^ 0xD4;
     uint32_t tokenAGG = WorkKernel(BUDGET_AGG, seed);
 
     ack_low(PIN_ACK_AGG);

@@ -31,6 +31,7 @@ uint32_t d_id = 0;
 SemaphoreHandle_t semaA;
 SemaphoreHandle_t semaB;
 SemaphoreHandle_t semaS;
+SemaphoreHandle_t token_mutex;
 
 // Task runner functions that wrap task execution with monitor calls
 static void Run_TaskA(void)
@@ -79,6 +80,7 @@ static void Run_TaskS(void)
         endTaskS();
 }
 
+// FreeRTOS task functions that call the corresponding task runners and handle timing
 static void TaskA_FRTOS(void *pvParameters)
 {
     TickType_t lastWakeTime = xTaskGetTickCount();
@@ -152,8 +154,9 @@ static void TaskMonitor(void *pvParameters)
     while (1)
     {
         monitorPollReports();
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
+   
 }
 
 
@@ -171,10 +174,11 @@ void app_main(void)
     // Disable task watchdog
     esp_task_wdt_delete(NULL);
 
+    // Create semaphores for task synchronization and shared token access
     semaA = xSemaphoreCreateBinary();
     semaB = xSemaphoreCreateBinary();
     semaS = xSemaphoreCreateBinary();
-
+    token_mutex = xSemaphoreCreateMutex();
 
     // Wait for SYNC signal to align the start of the schedule
     while (!pins_sync_seen()) {
@@ -185,12 +189,13 @@ void app_main(void)
     T0_us = pins_sync_T0_us();
     synch();
 
+    // Create tasks pinned to core 0 with appropriate priorities
     xTaskCreatePinnedToCore(
         TaskA_FRTOS,
         "TaskA",
         2048,
         NULL,
-        3, 
+        5, 
         NULL,
         0
     );
@@ -200,7 +205,7 @@ void app_main(void)
         "TaskB",
         2048,
         NULL,
-        3, 
+        4, 
         NULL,
         0
     );
@@ -209,7 +214,7 @@ void app_main(void)
         "TaskAGG",
         2048,
         NULL,
-        3, 
+        4, 
         NULL,
         0
     );
@@ -218,7 +223,7 @@ void app_main(void)
         "TaskC",
         2048,
         NULL,
-        2, 
+        3, 
         NULL,
         0
     );
@@ -227,7 +232,7 @@ void app_main(void)
         "TaskD",
         2048,
         NULL,
-        2, 
+        3, 
         NULL,
         0
     );
@@ -236,7 +241,7 @@ void app_main(void)
         "TaskS",
         2048,
         NULL,
-        4, 
+        2, 
         NULL,
         0
     );
