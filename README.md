@@ -1,4 +1,4 @@
-B31DG_A2/
+B31DG_A3/
 ├── .vscode/                 # VS Code settings
 ├── build/                   # ESP-IDF build output
 ├── main/
