@@ -42,6 +42,10 @@ static inline void ack_high(gpio_num_t pin) { gpio_set_level(pin, 1); }
 static inline void ack_low(gpio_num_t pin)  { gpio_set_level(pin, 0); }
 
 // Task implementations
+
+// 1. Task A and B read their respective edge counts
+// 2. They then run the WorkKernel with their count and a unique seed
+// 3. Task AGG reads the latest tokens from A and B
 void task_A(void)
 {
     ack_high(PIN_ACK_A);
@@ -88,6 +92,9 @@ void task_B(void)
     idxB++;
 }
 
+// 1. Task AGG reads latest tokens from A and B with mutex protection
+// 2. If both tokens are valid, it computes agg = tokenA XOR tokenB, else uses a sentinel value
+// 3. Task AGG then runs the WorkKernel with the computed agg value
 void task_AGG(void)
 {
     ack_high(PIN_ACK_AGG);
@@ -104,7 +111,7 @@ void task_AGG(void)
     validB = tokenB_valid;
     xSemaphoreGive(token_mutex);
     uint32_t agg;
-    if (tokenA_valid && tokenB_valid) {
+        if (validA && validB) {
         agg = tokenA ^ tokenB;
     } else {
         agg = 0xDEADBEEF; // Sentinel value if tokens are not valid

@@ -177,7 +177,7 @@ void app_main(void)
     // Create semaphores for task synchronization and shared token access
     semaA = xSemaphoreCreateBinary();
     semaB = xSemaphoreCreateBinary();
-    semaS = xSemaphoreCreateBinary();
+    semaS = xSemaphoreCreateCounting(10, 0);
     token_mutex = xSemaphoreCreateMutex();
 
     // Wait for SYNC signal to align the start of the schedule
@@ -190,6 +190,8 @@ void app_main(void)
     synch();
 
     // Create tasks pinned to core 0 with appropriate priorities
+    // parameters are: task function, name, stack size, parameters, priority, task handle, core ID
+    // Higher priority number means higher priority
     xTaskCreatePinnedToCore(
         TaskA_FRTOS,
         "TaskA",
